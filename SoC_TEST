@@ -1,0 +1,57 @@
+//Discharge monitoring function
+
+#define RESISTANCE_VALUE 10 //Measured in Ohms
+#define REF_VOLTAGE 3.3 //ADC reference voltage measured in Volts
+#define BATTERY_CAPACITY 20.8 //Measured in Ah
+
+float SoC = BATTERY_CAPACITY; //SoC begins at 100% and slowly drops over time to SoC = 0 at 0% Charge
+float countedCoulomb = 0;
+float usedEnergy = 0;
+
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(12);
+}
+
+void loop() {
+  int currentSensorValue = analogRead(A0);
+  float measuredVoltage = currentSensorValue * ((REF_VOLTAGE) / 4096); //Using a 12-bit ADC
+
+  //Coulomb Count; Measured every 1 sec, so coulombs = currentI * 1 (C = I * t)
+  float currentI = measuredVoltage / RESISTANCE_VALUE;
+  countedCoulomb += currentI;
+  usedEnergy += currentI / 3600;
+
+  //SoC Algorithm SoC
+  SoC -= (currentI / 3600); // divide by 3600 to go from Coulombs to Ah
+  
+  //End of discharge curve, non-linear operation that is estimated linearly
+  if((SoC / BATTERY_CAPACITY) <= 0.2) 
+  {
+    SoC -= 2.3 * (currentI / 3600); //Estimation for end of curve is to estimate capacity drop off as a psuedo increase to the coulombs counted. Check enepaq battery datasheet for discharge curve and estiamtion on these slopes
+  }
+  
+  if(SoC < 0)
+  {
+    SoC = 0;
+  }
+
+  //Print the Current SoC
+  Serial.println(sensorValue);
+  Serial.print("Counted Coulombs: ");
+  Serial.println(countedCoulomb);
+  Serial.print("Used Energy in Ah: ");
+  Serial.println(usedEnergy);
+  Serial.print("Current SoC: ");
+  Serial.print((SoC / BATTERY_CAPACITY) * 100);
+  Serial.println("%");
+
+  /*
+  This part will not exist once an EEPROM is implemented. When using the EEPROM, pull the value for each variable
+  from the EEPROM location, calculate the new value, then save those new values into the EEPROM location before the 
+  next round of calculations. This will ensure we do not need temporary variables, we can just pull the previous values
+  from the EEPROM
+  */
+
+  delay(1000);
+}

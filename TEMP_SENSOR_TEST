@@ -1,0 +1,151 @@
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Wire.h>
+
+//ADG728 Declarations
+#define ADG728_ADDRESS 0x4C //Check A0 and A1 pins bias to ensure address is correct. ADDRESS = 0b 0100 11(A1)(A0).
+
+//OLED Screen Declarations 
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+// Declaration for SSD1306 display connected using software SPI (default case):
+#define OLED_MOSI   PB15
+#define OLED_CLK   PB13
+#define OLED_DC    PB14
+#define OLED_CS    PB12
+#define OLED_RESET PA12
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT,
+  OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS);
+
+const float voltages[] = {1.30, 1.31, 1.32, 1.33, 1.34, 1.35, 1.37, 1.38, 1.40, 1.43, 1.45, 1.48, 1.51, 1.55, 
+1.59, 1.63, 1.68, 1.74, 1.80, 1.86, 1.92, 1.99, 2.05, 2.11, 2.17, 2.23, 2.27, 2.32, 2.35, 2.38, 2.40, 2.42, 2.44};
+
+const float temperatures[] = {120.0, 115.0, 110.0, 105.0, 100.0, 95.0, 90.0, 85.0, 80.0, 75.0, 70.0, 65.0, 60.0, 
+                               55.0, 50.0, 45.0, 40.0, 35.0, 30.0, 25.0, 20.0, 15.0, 10.0, 5.0, 0.0, -5.0, -10.0, 
+                               -15.0, -20.0, -25.0, -30.0, -35.0, -40.0}; // Corresponding temperature values (in °C)
+
+const float refVoltage = 3.3; //ADC reference voltage; Change as necessary for specific ADC requirements
+
+class ADG728 {
+public:
+    ADG728() {}
+
+    void begin() {
+        Wire.begin();
+    }
+
+    // Function to select a channel on the ADG728
+    void selectChannel(uint8_t channel) {
+        // Write the channel selection command to the ADG728
+        Wire.beginTransmission(ADG728_ADDRESS);
+        Wire.write(channel); // Assuming channel numbering starts from 0
+        Wire.endTransmission();
+    }
+};
+
+//ADG728 Mux constructor 
+ADG728 adg728;
+
+float interpolateTemperature(float voltage) {
+  // Ensure voltage is within the range of the array
+  if (voltage < voltages[0] || voltage > voltages[sizeof(voltages) / sizeof(voltages[0]) - 1]) {
+    return NAN; // Voltage is outside the range
+  }
+
+  // Perform linear interpolation
+  for (int i = 1; i < sizeof(voltages) / sizeof(voltages[0]); ++i) {
+    if (voltage <= voltages[i]) {
+      // Linear interpolation formula: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+      return temperatures[i - 1] + (voltage - voltages[i - 1]) * (temperatures[i] - temperatures[i - 1]) / (voltages[i] - voltages[i - 1]);
+    }
+  }
+
+  // Return an error value if voltage is outside the range
+  return NAN;
+}
+
+void temperatureLoop(uint8_t channel)
+{
+  //Switch mux channel 
+  adg728.selectChannel(channel);
+
+  Serial.println(channel);
+
+  display.setCursor(40, 8 * (channel) + 8);    //set cursor point on OLED
+  display.write("        ");
+  display.display();
+
+  int rawValue = analogRead(A0); // Read raw ADC value
+  float voltage = (float)rawValue * (refVoltage / 4096.0); // Convert raw value to voltage (assuming 3.3V reference)
+  Serial.println(voltage);
+  float temperature = interpolateTemperature(voltage); // Estimate temperature using interpolation
+  if ((temperature >= -40.0) && (temperature <= 120.0)) //CHANGE NUMBERS SO THEY COME FROM ARRAY AND ARE NOT HARD CODED!!!
+  {
+    Serial.println(temperature);
+    display.setCursor(40, 8 * (channel) + 8);    //hard-coded for now, to be changed later when multiple channels are introduced
+    display.print(temperature,3);
+    display.display();
+  } 
+  else
+  {
+    Serial.println("ERROR");
+    display.setCursor(40, 8 * (channel) + 8);
+    display.write("ERROR");
+    display.display();
+  }
+  delay(700); // Wait for some time before reading again
+}
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(115200);
+  
+  //Initialize the ADC
+  analogReadResolution(12); 
+
+  //Initialize ADG728
+  adg728.begin();
+
+  // Initialize SPI communication
+  SPI.begin();
+
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if(!display.begin(SSD1306_SWITCHCAPVCC)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+
+  // Show initial display buffer contents on the screen --
+  // the library initializes this with an Adafruit splash screen.
+
+  display.display();
+  delay(2000); // Pause for 2 seconds
+
+  // Clear the buffer
+  display.clearDisplay();
+
+  display.setTextSize(1);      // Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE, BLACK); // Draw white text
+  display.setCursor(0, 0);     // Start at top-left corner
+  display.cp437(true);         // Use full 256 char 'Code Page 437' font
+
+
+  display.write("Temp Tester: Celsius");
+  display.setCursor(0, 16);
+  display.write("Temp1:");
+  display.setCursor(0, 24);
+  display.write("Temp2:");
+  display.display();
+
+  Serial.println("Hello");
+}
+
+void loop() 
+{
+  temperatureLoop(1); //Read Channel 0
+  delay(50);
+  temperatureLoop(2); //Read Channel 1
+  //Will need 6 channels 
+  delay(50);
+}

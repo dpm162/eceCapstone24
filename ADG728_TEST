@@ -1,0 +1,40 @@
+#include <Wire.h>
+
+#define ADG728_ADDRESS 0x4C // Change this according to the address of your ADG728 (i.e. pins A0 and A1)
+
+class ADG728 {
+public:
+    ADG728() {}
+
+    void begin() {
+        Wire.begin();
+    }
+
+    // Function to select a channel on the ADG728
+    void selectChannel(uint8_t channel) {
+        // Write the channel selection command to the ADG728
+        Wire.beginTransmission(ADG728_ADDRESS);
+        Wire.write(channel); // Assuming channel numbering starts from 0
+        Wire.endTransmission();
+    }
+};
+
+// Create an instance of the ADG728 class
+ADG728 adg728;
+
+void setup() {
+    Wire.begin();
+    Serial.begin(9600);
+    
+    // Initialize the ADG728
+    adg728.begin();
+}
+
+void loop() {
+    // Use the ADG728 object to select a channel
+    adg728.selectChannel(0); // Select channel 0
+    delay(1000);
+    adg728.selectChannel(1); // Select channel 1
+    delay(1000);
+    // Add more channel selection as needed
+}

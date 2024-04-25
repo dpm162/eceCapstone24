@@ -1,0 +1,151 @@
+#include <SPI.h>
+#include <Wire.h>
+// #include <Adafruit_GFX.h>
+// #include <Adafruit_SSD1306.h>
+
+//Memory Address
+#define memoryAddress 0xAAAA
+
+// Define the pin configurations for Blue Pill
+#define CS_PIN PA4  // Chip Select pin (replace with the actual pin you use)
+#define MOSI_PIN PA7  // Master Out Slave In (MOSI) pin
+#define MISO_PIN PA6  // Master In Slave Out (MISO) pin
+#define SCK_PIN PA5  // Serial Clock (SCK) pin
+#define SPI_SPEED 1000000  // SPI speed (1 MHz)
+
+// //OLED Screen Declarations 
+// #define SCREEN_WIDTH 128 // OLED display width, in pixels
+// #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+// // Declaration for SSD1306 display connected using software SPI (default case):
+// #define OLED_MOSI   PB5
+// #define OLED_CLK   PB3
+// #define OLED_DC    PB4
+// #define OLED_CS    PA15
+// #define OLED_RESET PA12
+// Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT,
+//   OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS);
+
+int sentChar = 0x00;
+
+void setup() {
+  Serial.begin(9600);
+
+  // Initialize SPI communication
+  SPI.begin();
+
+  // Set CS pin as an OUTPUT
+  pinMode(CS_PIN, OUTPUT);
+
+  // Configure SPI pins
+  pinMode(MOSI_PIN, OUTPUT);
+  pinMode(MISO_PIN, INPUT);
+  pinMode(SCK_PIN, OUTPUT);
+
+  SPI.beginTransaction(SPISettings(SPI_SPEED, MSBFIRST, SPI_MODE0));
+
+  // Disable the EEPROM write protection (if applicable)
+  // You may need to check the datasheet for the exact command
+  // Example: disableWriteProtection();
+  
+
+  // // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  // if(!display.begin(SSD1306_SWITCHCAPVCC)) {
+  //   Serial.println(F("SSD1306 allocation failed"));
+  //   for(;;); // Don't proceed, loop forever
+  // }
+
+  // // Show initial display buffer contents on the screen --
+  // // the library initializes this with an Adafruit splash screen.
+
+  // display.display();
+  // delay(2000); // Pause for 2 seconds
+
+  // // Clear the buffer
+  // display.clearDisplay();
+
+  // display.setTextSize(1);      // Normal 1:1 pixel scale
+  // display.setTextColor(SSD1306_WHITE, BLACK); // Draw white text
+  // display.setCursor(0, 0);     // Start at top-left corner
+  // display.cp437(true);         // Use full 256 char 'Code Page 437' font
+
+
+  // display.write("EEPROM TESTER");
+  // display.setCursor(0, 8);
+  // display.write("Mem. Address:0x");
+  // display.print(memoryAddress, HEX);
+  // display.setCursor(0, 16);
+  // display.write("StoredChar:");
+  // display.setCursor(0, 24);
+  // display.write("ReadChar:");
+  // display.display();
+}
+
+void loop() {
+  // Write data to the EEPROM
+  writeDataToEEPROM();
+
+  delay(1000);  // Delay between writes
+
+  // Read data from the EEPROM
+  readDataFromEEPROM();
+
+  delay(1000);  // Delay between reads
+}
+
+void writeDataToEEPROM() {
+  digitalWrite(CS_PIN, LOW);  // Enable Chip Select
+
+  // Send Write Enable command
+  SPI.transfer(0x06); // Example command, check datasheet for the correct command
+
+  digitalWrite(CS_PIN, HIGH); // Disable Chip Select
+
+  delay(10);  // Wait for the Write Enable command to take effect
+
+  // Send Write command and data
+  digitalWrite(CS_PIN, LOW); // Enable Chip Select
+
+  SPI.transfer(0x02);  // Write command
+  SPI.transfer16(memoryAddress);  // Address to write data
+  SPI.transfer(sentChar);  // Example data, replace with your data
+
+  // //OLED "StoredChar"
+  // display.setCursor(70, 16);
+  // display.write(sentChar);
+  // display.display();
+
+  Serial.println("Stored Character");
+  Serial.println(sentChar);
+
+  sentChar++;
+  if(sentChar > 0xFF)
+  {
+    sentChar = 0x00;
+  }
+
+  digitalWrite(CS_PIN, HIGH);  // Disable Chip Select
+
+  // Wait for the write operation to complete (check Status Register, if applicable)
+  delay(10);
+}
+
+void readDataFromEEPROM() {
+  digitalWrite(CS_PIN, LOW);  // Enable Chip Select
+
+  // Send Read command
+  SPI.transfer(0x03);  // Read command
+  SPI.transfer16(memoryAddress);  // Address to read data from
+
+  uint8_t data = SPI.transfer(0xFF);  // Read data
+
+  digitalWrite(CS_PIN, HIGH);  // Disable Chip Select
+
+  // //OLED "ReadChar"
+  // display.setCursor(70, 24);
+  // display.write(data);
+  // display.display();
+
+  Serial.println("Read Char");
+  Serial.println(data);
+}

@@ -1,0 +1,12 @@
+HardwareSerial Serial3(PB11, PB10); //PA2 and PA3 are UART2 on the stm32F103c8t6
+
+#define BAUDRATE 9600
+
+void setup() {
+  Serial3.begin(BAUDRATE);  // Initialize serial monitor
+}
+
+void loop() {
+  Serial3.println("Hello from Bluepill!");
+  delay(1000);
+}

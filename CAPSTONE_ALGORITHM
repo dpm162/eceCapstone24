@@ -1,0 +1,214 @@
+#include <SPI.h>
+#include <Wire.h>
+
+// ADC Information
+#define REF_VOLTAGE 3.3 //ADC reference voltage measured in Volts
+#define CURRENT_SENSOR_ADC_PIN PA0
+#define TEMP_ADC_PIN PA1
+
+//SoC Battery Info
+#define RESISTANCE_VALUE 10 //Measured in Ohms; Only exists to simulate a load
+#define BATTERY_CAPACITY 20.8 //Measured in Ah
+
+//Memory Address
+#define temperatureMemoryAddress 0xAAAA
+#define socMemoryAddress 0xBBBB
+#define countedCoulombMemoryAddress 0xCCCC
+
+//ADG728 Declarations
+#define ADG728_ADDRESS 0x4C //Check A0 and A1 pins bias to ensure address is correct. ADDRESS = 0b 0100 11(A1)(A0).
+
+// Define the pin configurations for Blue Pill
+#define CS_PIN PA4  // Chip Select pin (replace with the actual pin you use)
+#define MOSI_PIN PA7  // Master Out Slave In (MOSI) pin
+#define MISO_PIN PA6  // Master In Slave Out (MISO) pin
+#define SCK_PIN PA5  // Serial Clock (SCK) pin
+#define SPI_SPEED 1000000  // SPI speed (1 MHz)
+
+const float voltages[] = {1.30, 1.31, 1.32, 1.33, 1.34, 1.35, 1.37, 1.38, 1.40, 1.43, 1.45, 1.48, 1.51, 1.55, 
+1.59, 1.63, 1.68, 1.74, 1.80, 1.86, 1.92, 1.99, 2.05, 2.11, 2.17, 2.23, 2.27, 2.32, 2.35, 2.38, 2.40, 2.42, 2.44};
+
+const float temperatures[] = {120.0, 115.0, 110.0, 105.0, 100.0, 95.0, 90.0, 85.0, 80.0, 75.0, 70.0, 65.0, 60.0, 
+                               55.0, 50.0, 45.0, 40.0, 35.0, 30.0, 25.0, 20.0, 15.0, 10.0, 5.0, 0.0, -5.0, -10.0, 
+                               -15.0, -20.0, -25.0, -30.0, -35.0, -40.0}; // Corresponding temperature values (in °C)
+
+class ADG728 {
+public:
+    ADG728() {}
+
+    void begin() {
+        Wire.begin();
+    }
+
+    // Function to select a channel on the ADG728
+    void selectChannel(uint8_t channel) {
+        // Write the channel selection command to the ADG728
+        Wire.beginTransmission(ADG728_ADDRESS);
+        Wire.write(channel); // Assuming channel numbering starts from 0
+        Wire.endTransmission();
+    }
+};
+
+//ADG728 Mux constructor 
+ADG728 adg728;
+
+void writeDataToEEPROM(float data, int memoryAddress) {
+  byte* dataBytes = (byte*)&data; //Handles floats
+
+  digitalWrite(CS_PIN, LOW);  // Enable Chip Select
+
+  // Send Write Enable command
+  SPI.transfer(0x06); // Example command, check datasheet for the correct command
+
+  digitalWrite(CS_PIN, HIGH); // Disable Chip Select
+
+  delay(10);  // Wait for the Write Enable command to take effect
+
+  // Send Write command and data
+  digitalWrite(CS_PIN, LOW); // Enable Chip Select
+
+  SPI.transfer(0x02);  // Write command
+  SPI.transfer16(memoryAddress);  // Address to write data
+   // Write data byte by byte
+  for (int i = 0; i < sizeof(float); ++i) {
+    SPI.transfer(dataBytes[i]);
+  }
+
+  digitalWrite(CS_PIN, HIGH);  // Disable Chip Select
+
+  // Wait for the write operation to complete (check Status Register, if applicable)
+  delay(10);
+}
+
+float readDataFromEEPROM(int memoryAddress) {
+  float genericData; // Variable to store the read float
+  byte* dataBytes = (byte*)&genericData; // Pointer to the float data
+
+  digitalWrite(CS_PIN, LOW);  // Enable Chip Select
+
+  // Send Read command
+  SPI.transfer(0x03);  // Read command
+  SPI.transfer16(memoryAddress);  // Address to read data from
+  // Read data byte by byte
+  for (int i = 0; i < sizeof(float); ++i) {
+    dataBytes[i] = SPI.transfer(0xFF); // Dummy byte to receive data
+  }
+
+  digitalWrite(CS_PIN, HIGH);  // Disable Chip Select
+
+  return genericData;
+}
+
+float interpolateTemperature(float voltage) {
+  // Ensure voltage is within the range of the array
+  if (voltage < voltages[0] || voltage > voltages[sizeof(voltages) / sizeof(voltages[0]) - 1]) {
+    return NAN; // Voltage is outside the range
+  }
+
+  // Perform linear interpolation
+  for (int i = 1; i < sizeof(voltages) / sizeof(voltages[0]); ++i) {
+    if (voltage <= voltages[i]) {
+      // Linear interpolation formula: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+      return temperatures[i - 1] + (voltage - voltages[i - 1]) * (temperatures[i] - temperatures[i - 1]) / (voltages[i] - voltages[i - 1]);
+    }
+  }
+
+  // Return an error value if voltage is outside the range
+  return NAN;
+}
+
+void temperatureLoop(uint8_t channel)
+{
+  //Switch mux channel 
+  adg728.selectChannel(channel);
+
+  Serial.println(channel);
+
+  int rawValue = analogRead(TEMP_ADC_PIN); // Read raw ADC value
+  float voltage = (float)rawValue * (REF_VOLTAGE / 4096.0); // Convert raw value to voltage (assuming 3.3V reference)
+  Serial.println(voltage);
+  float temperature = interpolateTemperature(voltage); // Estimate temperature using interpolation
+  if ((temperature >= -40.0) && (temperature <= 120.0)) //CHANGE NUMBERS SO THEY COME FROM ARRAY AND ARE NOT HARD CODED!!!
+  {
+    Serial.println(temperature);
+    writeDataToEEPROM(temperature * 100, temperatureMemoryAddress);
+  } 
+  else
+  {
+    Serial.println("ERROR");
+  }
+  delay(700); // Wait for some time before reading again
+}
+
+
+
+void setup() {
+  Serial.begin(9600);
+   //Initialize the ADC
+  analogReadResolution(12); 
+  //Initialize ADG728
+  adg728.begin();
+  // Initialize SPI communication
+  SPI.begin();
+
+  // Set CS pin as an OUTPUT
+  pinMode(CS_PIN, OUTPUT);
+
+  // Configure SPI pins
+  pinMode(MOSI_PIN, OUTPUT);
+  pinMode(MISO_PIN, INPUT);
+  pinMode(SCK_PIN, OUTPUT);
+
+  SPI.beginTransaction(SPISettings(SPI_SPEED, MSBFIRST, SPI_MODE0));
+
+  //setting initial SoC values
+  writeDataToEEPROM(BATTERY_CAPACITY, socMemoryAddress);
+  writeDataToEEPROM(0, countedCoulombMemoryAddress);
+}
+
+void loop() {
+  //measure current
+  int currentSensorValue = analogRead(CURRENT_SENSOR_ADC_PIN);
+  float measuredVoltage = currentSensorValue * ((REF_VOLTAGE) / 4096); //Using a 12-bit ADC
+
+  //Coulomb Count; Measured every 1 sec, so coulombs = currentI * 1 (C = I * t)
+  float currentI = measuredVoltage / RESISTANCE_VALUE;
+  
+  temperatureLoop(1); //Read Channel 0
+  delay(50);
+
+  float countedCoulomb = readDataFromEEPROM(countedCoulombMemoryAddress);
+  countedCoulomb += currentI; //readDataFromEEPROM()/1000 to account for EEPROM only allowing int storage
+
+  //SoC Algorithm SoC
+  float SoC = readDataFromEEPROM(socMemoryAddress);
+  SoC -= (currentI / 3600);
+  
+  //End of discharge curve, non-linear operation that is estimated linearly
+  if((SoC / BATTERY_CAPACITY) <= 0.2) 
+  {
+    SoC -= 2.3 * (currentI / 3600); //Estimation for end of curve is to estimate capacity drop off as a psuedo increase to the coulombs counted. Check enepaq battery datasheet for discharge curve and estiamtion on these slopes
+  }
+  
+  if(SoC = 0)
+  {
+    SoC = 0;
+  }
+
+  //Report values to EEPROM, * 1000 to account for the decimal float values being cut off by int storage of EEPROM
+  writeDataToEEPROM(SoC, socMemoryAddress);
+  writeDataToEEPROM(countedCoulomb, countedCoulombMemoryAddress);
+
+  //for testing
+  int toPrintVar = readDataFromEEPROM(socMemoryAddress);
+   Serial.println(toPrintVar);
+  //Print the Current SoC
+  Serial.print("Counted Coulombs: ");
+  Serial.println(countedCoulomb);
+  Serial.print("Current SoC: ");
+  Serial.print((SoC / BATTERY_CAPACITY) * 100);
+  Serial.println("%");
+
+
+  delay(1000);
+}
